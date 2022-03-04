@@ -8,41 +8,69 @@ use rand::prelude::*;
 use std::convert::TryFrom;
 
 mod consts;
+mod menu;
 mod scoreboard;
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+enum GameState {
+    Menu,
+    InGame,
+}
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugin(scoreboard::ScoreboardPlugin)
+        .insert_resource(Msaa { samples: 1 })
+        .insert_resource(ClearColor(Color::rgb(0.16, 0.17, 0.25)))
         .insert_resource(WindowDescriptor {
-            title: "Bevy Game jam 2022!".to_string(),
-            width: 500.0,
-            height: 500.0,
+            title: "Dodge the rock creatures!".to_string(),
+            width: 800.0,
+            height: 800.0,
             vsync: true,
             ..Default::default()
         })
-        .insert_resource(ClearColor(Color::rgb(0.16, 0.17, 0.25)))
+        .add_plugins(DefaultPlugins)
+        .add_state(GameState::Menu)
+        //.add_state_to_stage(GameState::Menu)
+        .add_plugin(menu::MenuPlugin)
+        .add_plugin(scoreboard::ScoreboardPlugin)
+        // .add_state_to_stage(CoreStage::Update, GameState::Menu)
         //.add_startup_system(setup_background)
-        .add_startup_system(setup_camera)
-        .add_startup_system(setup_player)
-        .add_system_set_to_stage(
-            CoreStage::PostUpdate,
-            SystemSet::new().with_system(position_translation),
-        )
         .add_system_set(
-            SystemSet::new()
-                .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
-                .with_system(basket_movement_system)
-                .with_system(falling_system)
-                .with_system(shape_collision_system),
+            SystemSet::on_enter(GameState::InGame)
+                //SystemSet::new()
+                .with_system(setup_camera)
+                .with_system(setup_player1)
+                .with_system(setup_player2),
         )
-        .add_system(basket_change_color_system)
+        // //.add_startup_system(setup_player1)
+        // //.add_startup_system(setup_player2)
+        // .add_system_set_to_stage(
+        //     CoreStage::PostUpdate,
+        //     SystemSet::on_update(GameState::InGame).with_system(position_translation),
+        // )
         .add_system_set(
+            SystemSet::on_update(GameState::InGame)
+                //.with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
+                .with_system(player1_movement_system)
+                .with_system(player2_movement_system)
+                .with_system(moving_system)
+                .with_system(player1_collision_system)
+                .with_system(player2_collision_system),
+        )
+        // //.add_system(player_change_color_system)
+        .add_system_set(
+            //SystemSet::on_update(GameState::InGame)
             SystemSet::new()
                 // TODO: This should increase either with time or score or both??
-                .with_run_criteria(FixedTimestep::step(1.0))
+                .with_run_criteria(FixedTimestep::step(0.5))
                 .with_system(spawn_next_piece),
         )
+        .add_system_set(
+            SystemSet::new()
+                .with_run_criteria(FixedTimestep::step(1.0))
+                .with_system(timer_score_system),
+        )
+        .add_system_set(SystemSet::on_exit(GameState::InGame).with_system(teardown))
         .add_system(bevy::input::system::exit_on_esc_system)
         .run();
 }
@@ -51,7 +79,7 @@ fn main() {
 enum Collider {
     Solid,
     Scorable,
-    Basket,
+    Player,
 }
 
 #[derive(Component, Clone, Copy, PartialEq)]
@@ -61,15 +89,59 @@ struct Position {
 }
 
 #[derive(Component)]
-struct Creature {
-    creature_type: CreatureType,
+struct Creature;
+//creature_type: CreatureType,
+
+#[derive(Copy, Clone, Debug)]
+enum Direction {
+    Up = 0,
+    Down = 1,
+    Left = 2,
+    Right = 3,
+}
+
+// impl TryFrom<usize> for Direction {
+//     type Error = ();
+
+//     fn try_from(v: usize) -> Result<Self, Self::Error> {
+//         match v {
+//             x if x == Direction::Up as usize => Ok(Direction::Down),
+//             x if x == Direction::Down as usize => Ok(Direction::Left),
+//             x if x == Direction::Left as usize => Ok(Direction::Right),
+//             x if x == Direction::Right as usize => Ok(Direction::Up),
+//             _ => Err(()),
+//         }
+//     }
+// }
+
+// impl Iterator for Direction {
+//     // we will be counting with usize
+//     type Item = Direction;
+
+//     // next() is the only required method
+//     fn next(&mut self) -> Option<Self::Item> {
+//         match self {
+//             &mut Direction::Up => Some(Direction::Down),
+//             &mut Direction::Down => Some(Direction::Left),
+//             &mut Direction::Left => Some(Direction::Right),
+//             &mut Direction::Right => Some(Direction::Up),
+//         }
+//     }
+// }
+
+#[derive(Component)]
+struct Moving {
+    direction: Direction,
 }
 
 #[derive(Component)]
-struct Falling;
+struct Player1 {
+    speed: f32,
+    item_type: CreatureType,
+}
 
 #[derive(Component)]
-struct Basket {
+struct Player2 {
     speed: f32,
     item_type: CreatureType,
 }
@@ -110,148 +182,340 @@ fn setup_camera(mut commands: Commands) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
 }
 
-fn setup_player(mut commands: Commands) {
+fn setup_player1(mut commands: Commands) {
     // basket
     commands
         .spawn_bundle(SpriteBundle {
             transform: Transform {
-                translation: Vec3::new(0.0, -215.0, 100.0),
-                scale: Vec3::new(120.0, 30.0, 100.0),
+                translation: Vec3::new(-215.0, -215.0, 100.0),
+                scale: Vec3::new(50.0, 50.0, 100.0),
                 ..Default::default()
             },
             sprite: Sprite {
-                color: BOX_COLOR[0],
+                color: PLAYER_COLOR[0],
                 ..Default::default()
             },
             ..Default::default()
         })
-        .insert(Basket {
+        .insert(Player1 {
             speed: 500.0,
             item_type: CreatureType::Blue,
         })
-        .insert(Collider::Basket);
+        .insert(Collider::Player);
 }
 
-fn spawn_next_piece(mut commands: Commands, assets: Res<AssetServer>) {
-    let sprite_handle = assets.load("enemies/brown_stone.png");
-    let color = rand::thread_rng().gen_range(0, BOX_COLOR.len());
+fn setup_player2(mut commands: Commands) {
+    // basket
+    commands
+        .spawn_bundle(SpriteBundle {
+            transform: Transform {
+                translation: Vec3::new(215.0, -215.0, 100.0),
+                scale: Vec3::new(50.0, 50.0, 100.0),
+                ..Default::default()
+            },
+            sprite: Sprite {
+                color: PLAYER_COLOR[2],
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Player2 {
+            speed: 500.0,
+            item_type: CreatureType::Blue,
+        })
+        .insert(Collider::Player);
+}
+
+fn spawn_next_piece(
+    windows: Res<Windows>,
+    state: ResMut<State<GameState>>,
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+) {
+    if *state.current() != GameState::InGame {
+        return;
+    }
+    let mut rng = rand::thread_rng();
+    //let rand_type = rand::thread_rng().gen_range(0, CREATURE_TYPE.len());
+    let creature = CREATURE_TYPE.iter().choose(&mut rng).unwrap();
+    let sprite_handle = assets.load(*creature);
+
+    // We want to pick a random type of direction
+    //let mut rng = rand::thread_rng();
+    let flip: f32 = rng.gen_range(-1.0, 1.0);
+    //let mut rng = rand::thread_rng();
+    let possible_directions = [
+        Direction::Up,
+        Direction::Down,
+        Direction::Left,
+        Direction::Right,
+    ];
+    let direction = possible_directions.choose(&mut rng).unwrap();
+
+    let mut x_pos: f32 = 0.0;
+    let mut y_pos: f32 = 0.0;
+    let window = windows.get_primary().unwrap();
+    println!("{:?}", window.width());
+    println!("{:?}", window.height());
+    match &direction {
+        Direction::Up => {
+            // Spawn at the bottom, along x axis
+            x_pos = flip * (window.width() / 2.0) as f32;
+            y_pos = -1.0 * window.height() as f32;
+        }
+        Direction::Down => {
+            x_pos = flip * (window.width() / 2.0) as f32;
+            y_pos = (window.height() / 2.0) as f32;
+        }
+        Direction::Left => {
+            x_pos = (window.height() / 2.0) as f32;
+            y_pos = flip * (window.height() / 2.0) as f32;
+        }
+        Direction::Right => {
+            x_pos = -1.0 * (window.height() / 2.0) as f32;
+            y_pos = flip * (window.width() / 2.0) as f32
+        }
+    }
+
+    // println!("x_pos: {:?}", x_pos);
+    // println!("y_pos: {:?}", y_pos);
+    // println!("direction: {:?}", direction);
+
     commands
         .spawn_bundle(SpriteBundle {
             texture: sprite_handle.clone(),
-            // sprite: Sprite {
-            //     color: BOX_COLOR[color],
-            //     ..Default::default()
-            // },
             transform: Transform {
                 scale: Vec3::new(1.0, 1.0, 100.0),
-                translation: Vec3::new(0., 0., 100.0),
+                translation: Vec3::new(x_pos, y_pos, 100.0),
                 ..Default::default()
             },
             ..Default::default()
         })
         // TODO: Need a better way of determining color type
-        .insert(Creature {
-            creature_type: CreatureType::try_from(color).unwrap_or(CreatureType::Blue),
+        // .insert(Creature {
+        //     creature_type: CreatureType::try_from(rand_type).unwrap_or(CreatureType::Blue),
+        // })
+        .insert(Creature)
+        .insert(Moving {
+            direction: *direction,
         })
-        .insert(Falling)
-        .insert(Position {
-            x: (random::<f32>() * ARENA_WIDTH as f32),
-            y: ARENA_HEIGHT as f32, //always spawn at the top
-        })
+        .insert(Position { x: x_pos, y: y_pos })
         .insert(Collider::Scorable);
 }
 
-fn position_translation(windows: Res<Windows>, mut q: Query<(&Position, &mut Transform)>) {
-    fn convert(pos: f32, bound_window: f32, bound_game: f32) -> f32 {
-        let tile_size = bound_window / bound_game;
-        pos / bound_game * bound_window - (bound_window / 2.) + (tile_size / 2.)
-    }
-    let window = windows.get_primary().unwrap();
-    for (pos, mut transform) in q.iter_mut() {
-        transform.translation = Vec3::new(
-            convert(pos.x as f32, window.width() as f32, ARENA_WIDTH as f32),
-            convert(pos.y as f32, window.width() as f32, ARENA_WIDTH as f32),
-            0.0,
-        );
+// fn position_translation(windows: Res<Windows>, mut q: Query<(&Position, &mut Transform)>) {
+//     fn convert(pos: f32, bound_window: f32, bound_game: f32) -> f32 {
+//         let tile_size = bound_window / bound_game;
+//         pos / bound_game * bound_window - (bound_window / 2.) + (tile_size / 2.)
+//     }
+//     let window = windows.get_primary().unwrap();
+//     for (pos, mut transform) in q.iter_mut() {
+//         transform.translation = Vec3::new(
+//             convert(pos.x as f32, window.width() as f32, ARENA_WIDTH as f32),
+//             convert(pos.y as f32, window.width() as f32, ARENA_WIDTH as f32),
+//             0.0,
+//         );
+//     }
+// }
+
+fn moving_system(mut query: Query<(&mut Transform, &Moving)>) {
+    for (mut pos, moving) in query.iter_mut() {
+        //println!("Moving in: {:?}", moving.direction);
+        match moving.direction {
+            // Direction::Up => pos.y += 1.05,
+            // Direction::Down => pos.y -= 1.05,
+            // Direction::Left => pos.x -= 1.05,
+            // Direction::Right => pos.x += 1.05,
+            Direction::Up => pos.translation.y += 1.05,
+            Direction::Down => pos.translation.y -= 1.05,
+            Direction::Left => pos.translation.x -= 1.05,
+            Direction::Right => pos.translation.x += 1.05,
+        }
     }
 }
 
-fn falling_system(mut query: Query<&mut Position, With<Falling>>) {
-    for mut pos in query.iter_mut() {
-        pos.y -= 0.05;
-    }
-}
-
-fn basket_movement_system(
+fn player1_movement_system(
     keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<(&Basket, &mut Transform)>,
+    mut query: Query<(&Player1, &mut Transform)>,
 ) {
     let (basket, mut transform) = query.single_mut();
     let mut direction = 0.0;
+    let translation = &mut transform.translation;
+    if keyboard_input.pressed(KeyCode::A) {
+        direction -= 1.0;
+        // move the paddle horizontally
+        translation.x += direction * basket.speed * TIME_STEP;
+    }
+
+    if keyboard_input.pressed(KeyCode::D) {
+        direction += 1.0;
+        // move the paddle horizontally
+        translation.x += direction * basket.speed * TIME_STEP;
+    }
+
+    if keyboard_input.pressed(KeyCode::W) {
+        direction += 1.0;
+        // move the paddle vertically
+        translation.y += direction * basket.speed * TIME_STEP;
+    }
+
+    if keyboard_input.pressed(KeyCode::S) {
+        direction -= 1.0;
+        // move the paddle vertically
+        translation.y += direction * basket.speed * TIME_STEP;
+    }
+
+    // bound the paddle within the walls
+    // TODO: Make this the same as the window size
+    translation.x = translation.x.min(550.0).max(-550.0);
+    translation.y = translation.y.min(350.0).max(-350.0);
+}
+
+fn player2_movement_system(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut query: Query<(&Player2, &mut Transform)>,
+) {
+    let (basket, mut transform) = query.single_mut();
+    let mut direction = 0.0;
+    let translation = &mut transform.translation;
     if keyboard_input.pressed(KeyCode::Left) {
         direction -= 1.0;
+        // move the paddle horizontally
+        translation.x += direction * basket.speed * TIME_STEP;
     }
 
     if keyboard_input.pressed(KeyCode::Right) {
         direction += 1.0;
+        // move the paddle horizontally
+        translation.x += direction * basket.speed * TIME_STEP;
     }
 
-    let translation = &mut transform.translation;
-    // move the paddle horizontally
-    translation.x += direction * basket.speed * TIME_STEP;
+    if keyboard_input.pressed(KeyCode::Up) {
+        direction += 1.0;
+        // move the paddle vertically
+        translation.y += direction * basket.speed * TIME_STEP;
+    }
+
+    if keyboard_input.pressed(KeyCode::Down) {
+        direction -= 1.0;
+        // move the paddle vertically
+        translation.y += direction * basket.speed * TIME_STEP;
+    }
+
     // bound the paddle within the walls
     // TODO: Make this the same as the window size
     translation.x = translation.x.min(550.0).max(-550.0);
+    translation.y = translation.y.min(350.0).max(-350.0);
 }
 
-fn basket_change_color_system(
-    keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<(&mut Basket, &mut Sprite)>,
-) {
-    let (mut basket, mut sprite) = query.single_mut();
+// fn player_change_color_system(
+//     keyboard_input: Res<Input<KeyCode>>,
+//     mut query: Query<(&mut Basket, &mut Sprite)>,
+// ) {
+//     let (mut basket, mut sprite) = query.single_mut();
 
-    if keyboard_input.just_pressed(KeyCode::Space) {
-        // We increment color type + 1
-        match basket.item_type {
-            CreatureType::Blue => {
-                basket.item_type = CreatureType::Green;
-                sprite.color = Color::rgb(0., 1., 0.);
-            }
-            CreatureType::Green => {
-                basket.item_type = CreatureType::Brown;
-                sprite.color = Color::rgb(0., 0., 1.);
-            }
-            CreatureType::Brown => {
-                basket.item_type = CreatureType::Blue;
-                sprite.color = Color::rgb(1., 0., 0.);
+//     if keyboard_input.just_pressed(KeyCode::Space) {
+//         // We increment color type + 1
+//         match basket.item_type {
+//             CreatureType::Blue => {
+//                 basket.item_type = CreatureType::Green;
+//                 sprite.color = BOX_COLOR[1];
+//             }
+//             CreatureType::Green => {
+//                 basket.item_type = CreatureType::Brown;
+//                 sprite.color = BOX_COLOR[2];
+//             }
+//             CreatureType::Brown => {
+//                 basket.item_type = CreatureType::Blue;
+//                 sprite.color = BOX_COLOR[0];
+//             }
+//         }
+//     }
+// }
+
+fn player1_collision_system(
+    mut commands: Commands,
+    mut game_state: ResMut<State<GameState>>,
+    mut scoreboard: ResMut<scoreboard::Scoreboard>,
+    mut player_query: Query<(&mut Player1, &Transform)>,
+    collider_query: Query<(Entity, &Collider, &Transform, &Creature)>,
+) {
+    let (mut basket, basket_transform) = player_query.single_mut();
+    let basket_size = basket_transform.scale.truncate();
+
+    // check collision with walls
+    for (collider_entity, collider, transform, creature) in collider_query.iter() {
+        let collision = collide(
+            basket_transform.translation,
+            basket_size,
+            transform.translation,
+            Vec2::new(transform.scale.x * 20., transform.scale.y * 20.), //TODO: better solution is to make the collider struct have values for this
+        );
+        if let Some(_collision) = collision {
+            if let Collider::Scorable = *collider {
+                // Only score if we catch the matching type
+                //if basket.item_type == creature.creature_type {
+                // scorable colliders should be despawned and increment the scoreboard on collision
+                //scoreboard.score += 1;
+                //commands.entity(collider_entity).despawn();
+                //}
+                match game_state.current() {
+                    // End the game if we hit something
+                    GameState::InGame => {
+                        game_state.set(GameState::Menu).unwrap();
+                    }
+                    _ => {}
+                }
             }
         }
     }
 }
 
-fn shape_collision_system(
+fn player2_collision_system(
     mut commands: Commands,
+    mut game_state: ResMut<State<GameState>>,
     mut scoreboard: ResMut<scoreboard::Scoreboard>,
-    mut player_query: Query<(&mut Basket, &Transform)>,
-    collider_query: Query<(Entity, &Collider, &Transform)>,
+    mut player_query: Query<(&mut Player2, &Transform)>,
+    collider_query: Query<(Entity, &Collider, &Transform, &Creature)>,
 ) {
-    let (mut ball, ball_transform) = player_query.single_mut();
-    let ball_size = ball_transform.scale.truncate();
+    let (mut basket, basket_transform) = player_query.single_mut();
+    let basket_size = basket_transform.scale.truncate();
 
     // check collision with walls
-    for (collider_entity, collider, transform) in collider_query.iter() {
+    for (collider_entity, collider, transform, creature) in collider_query.iter() {
         let collision = collide(
-            ball_transform.translation,
-            ball_size,
+            basket_transform.translation,
+            basket_size,
             transform.translation,
             Vec2::new(transform.scale.x * 20., transform.scale.y * 20.), //TODO: better solution is to make the collider struct have values for this
         );
-        if let Some(collision) = collision {
-            // scorable colliders should be despawned and increment the scoreboard on collision
+        if let Some(_collision) = collision {
             if let Collider::Scorable = *collider {
-                scoreboard.score += 1;
-                commands.entity(collider_entity).despawn();
+                // Only score if we catch the matching type
+                //if basket.item_type == creature.creature_type {
+                // scorable colliders should be despawned and increment the scoreboard on collision
+                //scoreboard.score += 1;
+                //commands.entity(collider_entity).despawn();
+                //}
+                match game_state.current() {
+                    // End the game if we hit something
+                    GameState::InGame => {
+                        game_state.set(GameState::Menu).unwrap();
+                    }
+                    _ => {}
+                }
             }
         }
+    }
+}
+
+fn timer_score_system(mut _commands: Commands, mut scoreboard: ResMut<scoreboard::Scoreboard>) {
+    scoreboard.score += 1;
+}
+
+// remove all entities that are not a camera
+fn teardown(mut commands: Commands, entities: Query<Entity, Without<Camera>>) {
+    for entity in entities.iter() {
+        commands.entity(entity).despawn_recursive();
     }
 }
