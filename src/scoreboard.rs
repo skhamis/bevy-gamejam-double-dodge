@@ -15,7 +15,8 @@ impl Plugin for ScoreboardPlugin {
         // add things to your app here
         app.insert_resource(Scoreboard { score: 0 })
             .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(setup))
-            .add_system_set(SystemSet::on_update(GameState::InGame).with_system(scoreboard_system));
+            .add_system_set(SystemSet::on_update(GameState::InGame).with_system(scoreboard_system))
+            .add_system_set(SystemSet::on_exit(GameState::InGame).with_system(teardown));
     }
 }
 
@@ -61,4 +62,12 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 fn scoreboard_system(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &ScoreText)>) {
     let (mut text, _score_text) = query.single_mut();
     text.sections[1].value = format!("{}", scoreboard.score);
+}
+
+// remove all entities that are not a camera
+fn teardown(mut commands: Commands, entities: Query<Entity, Without<Camera>>) {
+    println!("Scoreboard teardown called");
+    for entity in entities.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
 }

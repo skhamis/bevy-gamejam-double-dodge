@@ -1,19 +1,23 @@
 [package]
-name = "bevy-game-jam"
+name = "double-dodge"
 author = "Sammy Khamis"
 version = "0.1.0"
 edition = "2021"
 
 
+# Enable only a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
 [profile.release]
-opt-level = 's'
 lto = "thin"
+opt-level = 's'
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 bevy = "0.6.0"
-rand = "0.7.3"
+rand = "0.8.3"
 
 [workspace]
 resolver = "2" # Important! wgpu/Bevy needs this!

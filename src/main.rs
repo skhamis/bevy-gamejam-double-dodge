@@ -1,13 +1,18 @@
+use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::{
     core::FixedTimestep,
     prelude::*,
     sprite::collide_aabb::{collide, Collision},
 };
+
 use consts::*;
 use rand::prelude::*;
 use std::convert::TryFrom;
 
 mod consts;
+
+// UI plugins
+mod gameover;
 mod menu;
 mod scoreboard;
 
@@ -21,35 +26,30 @@ enum GameState {
 fn main() {
     App::new()
         .insert_resource(Msaa { samples: 1 })
-        .insert_resource(ClearColor(Color::rgb(0.16, 0.17, 0.25)))
+        .insert_resource(ClearColor(Color::rgb(0.80, 0.80, 0.80)))
         .insert_resource(WindowDescriptor {
-            title: "Dodge the rock creatures!".to_string(),
+            title: "Double Dodge!".to_string(),
             width: 1000.0,
             height: 600.0,
             vsync: true,
             ..Default::default()
         })
         .add_plugins(DefaultPlugins)
+        .add_plugin(LogDiagnosticsPlugin::default())
+        .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .add_state(GameState::Menu)
-        //.add_state_to_stage(GameState::Menu)
         .add_plugin(menu::MenuPlugin)
+        .add_plugin(gameover::GameOverPlugin)
         .add_plugin(scoreboard::ScoreboardPlugin)
-        // .add_state_to_stage(CoreStage::Update, GameState::Menu)
-        //.add_startup_system(setup_background)
         .add_system_set(
             SystemSet::on_enter(GameState::InGame)
-                //SystemSet::new()
+                // We need to teardown before anything
+                .with_system(teardown)
                 .with_system(setup_camera)
                 .with_system(setup_walls)
                 .with_system(setup_player1)
                 .with_system(setup_player2),
         )
-        // //.add_startup_system(setup_player1)
-        // //.add_startup_system(setup_player2)
-        // .add_system_set_to_stage(
-        //     CoreStage::PostUpdate,
-        //     SystemSet::on_update(GameState::InGame).with_system(position_translation),
-        // )
         .add_system_set(
             SystemSet::on_update(GameState::InGame)
                 //.with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
@@ -79,8 +79,7 @@ fn main() {
 
 #[derive(Component)]
 enum Collider {
-    Solid,
-    Scorable,
+    Creature,
     Player,
     Wall,
 }
@@ -191,7 +190,7 @@ fn setup_walls(mut commands: Commands) {
         .spawn_bundle(SpriteBundle {
             transform: Transform {
                 translation: Vec3::new(0., 0., 100.0),
-                scale: Vec3::new(3.0, 800.0, 100.0),
+                scale: Vec3::new(5.0, 800.0, 100.0),
                 ..Default::default()
             },
             sprite: Sprite {
@@ -258,12 +257,12 @@ fn spawn_next_piece(
     }
     let mut rng = rand::thread_rng();
     //let rand_type = rand::thread_rng().gen_range(0, CREATURE_TYPE.len());
-    let creature = CREATURE_TYPE.iter().choose(&mut rng).unwrap();
-    let sprite_handle = assets.load(*creature);
+    let creature_color = CREATURE_COLORS.iter().choose(&mut rng).unwrap();
+    //let sprite_handle = assets.load(*creature);
 
     // We want to pick a random type of direction
     //let mut rng = rand::thread_rng();
-    let flip: f32 = rng.gen_range(-1.0, 1.0);
+    let flip: f32 = rng.gen_range(-1.0..1.0);
     //let mut rng = rand::thread_rng();
     let possible_directions = [
         Direction::Up,
@@ -276,25 +275,25 @@ fn spawn_next_piece(
     let mut x_pos: f32 = 0.0;
     let mut y_pos: f32 = 0.0;
     let window = windows.get_primary().unwrap();
-    // println!("{:?}", window.width());
-    // println!("{:?}", window.height());
+    // Don't judge
+    const MAGIC_VAL: f32 = 1.4;
     match &direction {
         Direction::Up => {
             // Spawn at the bottom, along x axis
-            x_pos = flip * (window.width() / 2.0) as f32;
-            y_pos = -1.0 * window.height() as f32;
+            x_pos = flip * (window.width() / MAGIC_VAL) as f32;
+            y_pos = -1.0 * (window.height() / MAGIC_VAL) as f32;
         }
         Direction::Down => {
-            x_pos = flip * (window.width() / 2.0) as f32;
-            y_pos = (window.height() / 2.0) as f32;
+            x_pos = flip * (window.width() / MAGIC_VAL) as f32;
+            y_pos = (window.height() / MAGIC_VAL) as f32;
         }
         Direction::Left => {
-            x_pos = (window.height() / 2.0) as f32;
-            y_pos = flip * (window.height() / 2.0) as f32;
+            x_pos = (window.height() / MAGIC_VAL) as f32;
+            y_pos = flip * (window.height() / MAGIC_VAL) as f32;
         }
         Direction::Right => {
-            x_pos = -1.0 * (window.height() / 2.0) as f32;
-            y_pos = flip * (window.width() / 2.0) as f32
+            x_pos = -1.0 * (window.height() / MAGIC_VAL) as f32;
+            y_pos = flip * (window.width() / MAGIC_VAL) as f32
         }
     }
 
@@ -304,10 +303,14 @@ fn spawn_next_piece(
 
     commands
         .spawn_bundle(SpriteBundle {
-            texture: sprite_handle.clone(),
+            //texture: sprite_handle.clone(),
             transform: Transform {
-                scale: Vec3::new(1.0, 1.0, 100.0),
+                scale: Vec3::new(25.0, 25.0, 100.0),
                 translation: Vec3::new(x_pos, y_pos, 100.0),
+                ..Default::default()
+            },
+            sprite: Sprite {
+                color: *creature_color,
                 ..Default::default()
             },
             ..Default::default()
@@ -321,7 +324,7 @@ fn spawn_next_piece(
             direction: *direction,
         })
         .insert(Position { x: x_pos, y: y_pos })
-        .insert(Collider::Scorable);
+        .insert(Collider::Creature);
 }
 
 // fn position_translation(windows: Res<Windows>, mut q: Query<(&Position, &mut Transform)>) {
@@ -423,10 +426,9 @@ fn player2_movement_system(
         translation.y += direction * basket.speed * TIME_STEP;
     }
 
-    // bound the paddle within the walls
     // TODO: Make this the same as the window size
     translation.x = translation.x.min(550.0).max(-550.0);
-    translation.y = translation.y.min(350.0).max(-350.0);
+    translation.y = translation.y.min(450.0).max(-450.0);
 }
 
 // fn player_change_color_system(
@@ -464,26 +466,27 @@ fn player1_collision_system(
     let (mut basket, basket_transform) = player_query.single_mut();
     let basket_size = basket_transform.scale.truncate();
 
-    // check collision with walls
     for (collider_entity, collider, transform /*creature*/) in collider_query.iter() {
         let collision = collide(
             basket_transform.translation,
             basket_size,
             transform.translation,
-            Vec2::new(transform.scale.x * 20., transform.scale.y * 20.), //TODO: better solution is to make the collider struct have values for this
+            // Use this if using sprite textures, as the scaling was off to compensate
+            //Vec2::new(transform.scale.x * 20., transform.scale.y * 20.), //TODO: better solution is to make the collider struct have values for this
+            transform.scale.truncate(),
         );
         if let Some(_collision) = collision {
-            if let Collider::Scorable = *collider {
+            if let Collider::Creature = *collider {
                 // Only score if we catch the matching type
                 //if basket.item_type == creature.creature_type {
-                // scorable colliders should be despawned and increment the scoreboard on collision
+                // Creature colliders should be despawned and increment the scoreboard on collision
                 //scoreboard.score += 1;
                 //commands.entity(collider_entity).despawn();
                 //}
                 match game_state.current() {
                     // End the game if we hit something
                     GameState::InGame => {
-                        game_state.set(GameState::Menu).unwrap();
+                        game_state.push(GameState::GameOver).unwrap();
                     }
                     _ => {}
                 }
@@ -493,7 +496,7 @@ fn player1_collision_system(
                 match game_state.current() {
                     // End the game if we hit something
                     GameState::InGame => {
-                        game_state.set(GameState::Menu).unwrap();
+                        game_state.push(GameState::GameOver).unwrap();
                     }
                     _ => {}
                 }
@@ -518,20 +521,22 @@ fn player2_collision_system(
             basket_transform.translation,
             basket_size,
             transform.translation,
-            Vec2::new(transform.scale.x * 20., transform.scale.y * 20.), //TODO: better solution is to make the collider struct have values for this
+            // Use this if using sprite textures, as the scaling was off to compensate
+            // Vec2::new(transform.scale.x * 20., transform.scale.y * 20.), //TODO: better solution is to make the collider struct have values for this
+            transform.scale.truncate(),
         );
         if let Some(_collision) = collision {
-            if let Collider::Scorable = *collider {
+            if let Collider::Creature = *collider {
                 // Only score if we catch the matching type
                 //if basket.item_type == creature.creature_type {
-                // scorable colliders should be despawned and increment the scoreboard on collision
+                // Creature colliders should be despawned and increment the scoreboard on collision
                 //scoreboard.score += 1;
                 //commands.entity(collider_entity).despawn();
                 //}
                 match game_state.current() {
                     // End the game if we hit something
                     GameState::InGame => {
-                        game_state.set(GameState::Menu).unwrap();
+                        game_state.push(GameState::GameOver).unwrap();
                     }
                     _ => {}
                 }
@@ -541,7 +546,7 @@ fn player2_collision_system(
                 match game_state.current() {
                     // End the game if we hit something
                     GameState::InGame => {
-                        game_state.set(GameState::Menu).unwrap();
+                        game_state.push(GameState::GameOver).unwrap();
                     }
                     _ => {}
                 }
@@ -550,7 +555,16 @@ fn player2_collision_system(
     }
 }
 
-fn timer_score_system(mut _commands: Commands, mut scoreboard: ResMut<scoreboard::Scoreboard>) {
+fn timer_score_system(
+    state: ResMut<State<GameState>>,
+    mut scoreboard: ResMut<scoreboard::Scoreboard>,
+) {
+    // TODO: Slightly hacky due to SystemSet not being able to be used with
+    // run critera, so we just don't increment if we're not ingame
+    if *state.current() != GameState::InGame {
+        return;
+    }
+
     scoreboard.score += 1;
 }
 
