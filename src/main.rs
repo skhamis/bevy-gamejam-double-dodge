@@ -15,6 +15,7 @@ mod scoreboard;
 enum GameState {
     Menu,
     InGame,
+    GameOver,
 }
 
 fn main() {
@@ -23,8 +24,8 @@ fn main() {
         .insert_resource(ClearColor(Color::rgb(0.16, 0.17, 0.25)))
         .insert_resource(WindowDescriptor {
             title: "Dodge the rock creatures!".to_string(),
-            width: 800.0,
-            height: 800.0,
+            width: 1000.0,
+            height: 600.0,
             vsync: true,
             ..Default::default()
         })
@@ -39,6 +40,7 @@ fn main() {
             SystemSet::on_enter(GameState::InGame)
                 //SystemSet::new()
                 .with_system(setup_camera)
+                .with_system(setup_walls)
                 .with_system(setup_player1)
                 .with_system(setup_player2),
         )
@@ -80,6 +82,7 @@ enum Collider {
     Solid,
     Scorable,
     Player,
+    Wall,
 }
 
 #[derive(Component, Clone, Copy, PartialEq)]
@@ -182,6 +185,24 @@ fn setup_camera(mut commands: Commands) {
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
 }
 
+fn setup_walls(mut commands: Commands) {
+    // basket
+    commands
+        .spawn_bundle(SpriteBundle {
+            transform: Transform {
+                translation: Vec3::new(0., 0., 100.0),
+                scale: Vec3::new(3.0, 800.0, 100.0),
+                ..Default::default()
+            },
+            sprite: Sprite {
+                color: PLAYER_COLOR[1],
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .insert(Collider::Wall);
+}
+
 fn setup_player1(mut commands: Commands) {
     // basket
     commands
@@ -255,8 +276,8 @@ fn spawn_next_piece(
     let mut x_pos: f32 = 0.0;
     let mut y_pos: f32 = 0.0;
     let window = windows.get_primary().unwrap();
-    println!("{:?}", window.width());
-    println!("{:?}", window.height());
+    // println!("{:?}", window.width());
+    // println!("{:?}", window.height());
     match &direction {
         Direction::Up => {
             // Spawn at the bottom, along x axis
@@ -434,17 +455,17 @@ fn player2_movement_system(
 // }
 
 fn player1_collision_system(
-    mut commands: Commands,
+    // mut commands: Commands,
     mut game_state: ResMut<State<GameState>>,
-    mut scoreboard: ResMut<scoreboard::Scoreboard>,
+    // mut scoreboard: ResMut<scoreboard::Scoreboard>,
     mut player_query: Query<(&mut Player1, &Transform)>,
-    collider_query: Query<(Entity, &Collider, &Transform, &Creature)>,
+    collider_query: Query<(Entity, &Collider, &Transform)>,
 ) {
     let (mut basket, basket_transform) = player_query.single_mut();
     let basket_size = basket_transform.scale.truncate();
 
     // check collision with walls
-    for (collider_entity, collider, transform, creature) in collider_query.iter() {
+    for (collider_entity, collider, transform /*creature*/) in collider_query.iter() {
         let collision = collide(
             basket_transform.translation,
             basket_size,
@@ -459,6 +480,16 @@ fn player1_collision_system(
                 //scoreboard.score += 1;
                 //commands.entity(collider_entity).despawn();
                 //}
+                match game_state.current() {
+                    // End the game if we hit something
+                    GameState::InGame => {
+                        game_state.set(GameState::Menu).unwrap();
+                    }
+                    _ => {}
+                }
+            }
+            // Keeeping this separate for now incase we want to do something different with walls
+            if let Collider::Wall = *collider {
                 match game_state.current() {
                     // End the game if we hit something
                     GameState::InGame => {
@@ -476,13 +507,13 @@ fn player2_collision_system(
     mut game_state: ResMut<State<GameState>>,
     mut scoreboard: ResMut<scoreboard::Scoreboard>,
     mut player_query: Query<(&mut Player2, &Transform)>,
-    collider_query: Query<(Entity, &Collider, &Transform, &Creature)>,
+    collider_query: Query<(Entity, &Collider, &Transform)>,
 ) {
     let (mut basket, basket_transform) = player_query.single_mut();
     let basket_size = basket_transform.scale.truncate();
 
     // check collision with walls
-    for (collider_entity, collider, transform, creature) in collider_query.iter() {
+    for (collider_entity, collider, transform) in collider_query.iter() {
         let collision = collide(
             basket_transform.translation,
             basket_size,
@@ -505,6 +536,16 @@ fn player2_collision_system(
                     _ => {}
                 }
             }
+            // Keeeping this separate for now incase we want to do something different with walls
+            if let Collider::Wall = *collider {
+                match game_state.current() {
+                    // End the game if we hit something
+                    GameState::InGame => {
+                        game_state.set(GameState::Menu).unwrap();
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 }
@@ -514,7 +555,14 @@ fn timer_score_system(mut _commands: Commands, mut scoreboard: ResMut<scoreboard
 }
 
 // remove all entities that are not a camera
-fn teardown(mut commands: Commands, entities: Query<Entity, Without<Camera>>) {
+fn teardown(
+    mut commands: Commands,
+    entities: Query<Entity, Without<Camera>>,
+    mut scoreboard: ResMut<scoreboard::Scoreboard>,
+) {
+    // Reset the scoreboard
+    scoreboard.score = 0;
+
     for entity in entities.iter() {
         commands.entity(entity).despawn_recursive();
     }
