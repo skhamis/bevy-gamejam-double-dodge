@@ -4,6 +4,8 @@ This is a a game I am making for the [#1 Bevy game jam 2022](https://itch.io/jam
 
 [Now playable on Itch.io!](https://skcode.itch.io/dodging-creatures)
 
+![demo gif](img/double-dodge.gif)
+
 # Install
 
 ```bash
